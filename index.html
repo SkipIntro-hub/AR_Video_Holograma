@@ -256,6 +256,14 @@
 
         <div class="controls">
           <label class="field">
+            <span>Modo AR</span>
+            <select id="trackingMode">
+              <option value="manual">Colocacion manual</option>
+              <option value="mind">Image tracker .mind</option>
+            </select>
+          </label>
+
+          <label class="field">
             <span>Archivo .mind</span>
             <input id="mindFile" type="file" accept=".mind" />
           </label>
@@ -299,6 +307,11 @@
                 <option value="chroma">Chroma verde</option>
               </select>
             </label>
+
+            <label class="field">
+              <span>Target index</span>
+              <input id="targetIndex" type="number" min="0" step="1" value="0" />
+            </label>
           </div>
 
           <button id="startButton" class="start" type="button">Iniciar AR</button>
@@ -306,8 +319,9 @@
           <div id="errorBox" class="error" role="alert"></div>
 
           <p class="hint">
-            En mobile, la camara requiere HTTPS o localhost. El video se inicia desde este toque
-            para cumplir las restricciones de reproduccion de iOS y Android.
+            En colocacion manual, toca una superficie detectada para ubicar la pantalla. En modo
+            .mind, apunta a la imagen usada para generar el tracker. La camara requiere HTTPS o
+            localhost.
           </p>
         </div>
       </section>
@@ -339,6 +353,8 @@
         height: document.getElementById("screenHeight"),
         opacity: document.getElementById("opacity"),
         styleMode: document.getElementById("styleMode"),
+        trackingMode: document.getElementById("trackingMode"),
+        targetIndex: document.getElementById("targetIndex"),
         widthValue: document.getElementById("widthValue"),
         heightValue: document.getElementById("heightValue"),
         opacityValue: document.getElementById("opacityValue")
@@ -346,13 +362,15 @@
 
       const objectUrls = [];
       let currentVideo = null;
+      let currentXrSession = null;
+      let currentRenderer = null;
 
       function setError(message) {
         els.errorBox.textContent = message;
         els.errorBox.classList.toggle("is-visible", Boolean(message));
       }
 
-      function fileOrUrl(fileInput, urlInput, fallback) {
+      function fileOrUrl(fileInput, urlInput) {
         if (fileInput.files && fileInput.files[0]) {
           const url = URL.createObjectURL(fileInput.files[0]);
           objectUrls.push(url);
@@ -360,7 +378,7 @@
         }
 
         const typedUrl = urlInput.value.trim();
-        return typedUrl || fallback;
+        return typedUrl;
       }
 
       function updateValueLabels() {
@@ -375,6 +393,16 @@
         els.opacity.addEventListener(eventName, updateValueLabels);
       });
       updateValueLabels();
+
+      function updateModeCopy() {
+        const usingMind = els.trackingMode.value === "mind";
+        els.mindFile.disabled = !usingMind;
+        els.mindUrl.disabled = !usingMind;
+        els.targetIndex.disabled = !usingMind;
+      }
+
+      els.trackingMode.addEventListener("change", updateModeCopy);
+      updateModeCopy();
 
       AFRAME.registerShader("chroma-video", {
         schema: {
@@ -460,7 +488,194 @@
         }
       });
 
-      function buildScene({ mindSrc, videoSrc, width, height, opacity, mode }) {
+      function makeVideoMaterial(video, opacity, mode) {
+        const texture = new THREE.VideoTexture(video);
+        texture.colorSpace = THREE.SRGBColorSpace;
+
+        if (mode === "chroma") {
+          return new THREE.ShaderMaterial({
+            uniforms: {
+              map: { value: texture },
+              opacity: { value: opacity },
+              keyColor: { value: new THREE.Color("#00ff00") },
+              threshold: { value: 0.34 },
+              edge: { value: 0.08 }
+            },
+            vertexShader: `
+              varying vec2 vUv;
+              void main() {
+                vUv = uv;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+              }
+            `,
+            fragmentShader: `
+              uniform sampler2D map;
+              uniform vec3 keyColor;
+              uniform float threshold;
+              uniform float edge;
+              uniform float opacity;
+              varying vec2 vUv;
+
+              void main() {
+                vec4 tex = texture2D(map, vUv);
+                float diff = distance(tex.rgb, keyColor);
+                float alpha = smoothstep(threshold, threshold + edge, diff) * tex.a * opacity;
+                gl_FragColor = vec4(tex.rgb, alpha);
+              }
+            `,
+            transparent: true,
+            depthWrite: false,
+            side: THREE.DoubleSide
+          });
+        }
+
+        return new THREE.MeshBasicMaterial({
+          map: texture,
+          transparent: true,
+          opacity,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          blending: mode === "hologram" ? THREE.AdditiveBlending : THREE.NormalBlending,
+          color: mode === "hologram" ? new THREE.Color("#8dfcff") : new THREE.Color("#ffffff")
+        });
+      }
+
+      async function buildManualScene({ videoSrc, width, height, opacity, mode }) {
+        if (!navigator.xr) {
+          throw new Error("manual-unsupported");
+        }
+
+        let session;
+        try {
+          session = await navigator.xr.requestSession("immersive-ar", {
+            requiredFeatures: ["hit-test"],
+            optionalFeatures: ["dom-overlay", "local-floor"],
+            domOverlay: { root: document.body }
+          });
+        } catch (error) {
+          throw new Error("manual-unsupported");
+        }
+
+        els.sceneMount.innerHTML = "";
+
+        const video = document.createElement("video");
+        video.id = "hologramVideo";
+        video.src = videoSrc;
+        video.setAttribute("playsinline", "");
+        video.setAttribute("webkit-playsinline", "");
+        video.setAttribute("preload", "auto");
+        video.crossOrigin = "anonymous";
+        video.loop = true;
+        video.muted = true;
+        currentVideo = video;
+
+        await video.play();
+        video.pause();
+
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera();
+        const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.xr.enabled = true;
+        currentRenderer = renderer;
+        els.sceneMount.appendChild(renderer.domElement);
+
+        const screen = new THREE.Mesh(
+          new THREE.PlaneGeometry(width, height),
+          makeVideoMaterial(video, opacity, mode)
+        );
+        screen.visible = false;
+        scene.add(screen);
+
+        const glow = new THREE.Mesh(
+          new THREE.PlaneGeometry(width * 1.08, height * 1.14),
+          new THREE.MeshBasicMaterial({
+            color: "#2ce9ff",
+            transparent: true,
+            opacity: mode === "screen" ? 0 : 0.12,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+            blending: THREE.AdditiveBlending
+          })
+        );
+        glow.visible = false;
+        scene.add(glow);
+
+        const reticle = new THREE.Mesh(
+          new THREE.RingGeometry(0.08, 0.105, 36).rotateX(-Math.PI / 2),
+          new THREE.MeshBasicMaterial({
+            color: "#32e7c8",
+            transparent: true,
+            opacity: 0.82,
+            depthWrite: false
+          })
+        );
+        reticle.matrixAutoUpdate = false;
+        reticle.visible = false;
+        scene.add(reticle);
+
+        currentXrSession = session;
+        renderer.xr.setSession(session);
+        els.status.innerHTML = "<strong>Busca una superficie</strong> toca para colocar";
+
+        const referenceSpace = await session.requestReferenceSpace("local");
+        const viewerSpace = await session.requestReferenceSpace("viewer");
+        const hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
+
+        function placeScreen() {
+          if (!reticle.visible) return;
+
+          const placedPosition = new THREE.Vector3();
+          placedPosition.setFromMatrixPosition(reticle.matrix);
+          placedPosition.y += height / 2;
+
+          screen.position.copy(placedPosition);
+          glow.position.copy(placedPosition);
+
+          const cameraPosition = new THREE.Vector3();
+          camera.getWorldPosition(cameraPosition);
+          screen.lookAt(cameraPosition.x, screen.position.y, cameraPosition.z);
+          glow.quaternion.copy(screen.quaternion);
+
+          screen.visible = true;
+          glow.visible = mode !== "screen";
+          video.play().catch(() => {});
+          els.status.innerHTML = "<strong>Pantalla colocada</strong> toca otra superficie para moverla";
+        }
+
+        const controller = renderer.xr.getController(0);
+        controller.addEventListener("select", placeScreen);
+        scene.add(controller);
+
+        session.addEventListener("end", () => {
+          hitTestSource.cancel();
+          renderer.setAnimationLoop(null);
+          els.status.innerHTML = "<strong>AR finalizado</strong>";
+        });
+
+        renderer.setAnimationLoop((timestamp, frame) => {
+          if (frame) {
+            const hitTestResults = frame.getHitTestResults(hitTestSource);
+            if (hitTestResults.length) {
+              const hit = hitTestResults[0];
+              const pose = hit.getPose(referenceSpace);
+              reticle.visible = true;
+              reticle.matrix.fromArray(pose.transform.matrix);
+            } else {
+              reticle.visible = false;
+            }
+          }
+
+          renderer.render(scene, camera);
+        });
+
+        window.addEventListener("resize", () => {
+          renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+      }
+
+      function buildScene({ mindSrc, videoSrc, width, height, opacity, mode, targetIndex }) {
         els.sceneMount.innerHTML = "";
 
         const scene = document.createElement("a-scene");
@@ -473,6 +688,15 @@
         scene.setAttribute("vr-mode-ui", "enabled: false");
         scene.setAttribute("device-orientation-permission-ui", "enabled: false");
         scene.setAttribute("embedded", "");
+        scene.addEventListener("arReady", () => {
+          els.status.innerHTML = "<strong>Camara lista</strong> apunta al target";
+        });
+        scene.addEventListener("arError", () => {
+          els.status.innerHTML = "<strong>Error AR</strong> revisa permisos de camara";
+        });
+        scene.addEventListener("loaded", () => {
+          els.status.innerHTML = "<strong>Cargando tracker</strong>";
+        });
 
         const assets = document.createElement("a-assets");
         assets.setAttribute("timeout", "30000");
@@ -498,7 +722,7 @@
 
         const target = document.createElement("a-entity");
         target.setAttribute("id", "trackedTarget");
-        target.setAttribute("mindar-image-target", "targetIndex: 0");
+        target.setAttribute("mindar-image-target", `targetIndex: ${targetIndex}`);
         target.setAttribute("video-target-control", "video: #hologramVideo");
 
         const screen = document.createElement("a-plane");
@@ -565,29 +789,51 @@
         els.startButton.textContent = "Preparando camara...";
 
         try {
-          const mindSrc = fileOrUrl(els.mindFile, els.mindUrl, "./targets.mind");
-          const videoSrc = fileOrUrl(els.videoFile, els.videoUrl, "./video.mp4");
+          const mindSrc = fileOrUrl(els.mindFile, els.mindUrl);
+          const videoSrc = fileOrUrl(els.videoFile, els.videoUrl);
+          const usingMind = els.trackingMode.value === "mind";
+
+          if (usingMind && !mindSrc) {
+            throw new Error("missing-mind");
+          }
+
+          if (!videoSrc) {
+            throw new Error("missing-video");
+          }
+
           const config = {
             mindSrc,
             videoSrc,
             width: Number(els.width.value),
             height: Number(els.height.value),
             opacity: Number(els.opacity.value),
-            mode: els.styleMode.value
+            mode: els.styleMode.value,
+            targetIndex: Number(els.targetIndex.value)
           };
-
-          const { video } = buildScene(config);
-
-          await video.play();
-          video.pause();
 
           els.setup.style.display = "none";
           els.hud.classList.add("is-visible");
-          els.status.innerHTML = "<strong>Buscando target</strong>";
+          els.status.innerHTML = "<strong>Cargando AR</strong>";
+
+          if (usingMind) {
+            const { video } = buildScene(config);
+            await video.play();
+            video.pause();
+          } else {
+            await buildManualScene(config);
+          }
         } catch (error) {
-          setError(
-            "No pude iniciar la experiencia. Revisa que el .mind y el video existan, y que estes en HTTPS o localhost para permitir la camara."
-          );
+          const message =
+            error.message === "missing-mind"
+              ? "Falta cargar el archivo .mind o escribir una URL del .mind."
+              : error.message === "missing-video"
+                ? "Falta cargar el video o escribir una URL del video."
+                : error.message === "manual-unsupported"
+                  ? "Este navegador no soporta colocacion manual WebXR. Probalo en Android Chrome con HTTPS, o usamos otro flujo para iPhone."
+                  : "No pude iniciar la experiencia. Revisa que el .mind y el video existan, y que estes en HTTPS o localhost para permitir la camara.";
+          setError(message);
+          els.setup.style.display = "grid";
+          els.hud.classList.remove("is-visible");
           els.startButton.disabled = false;
           els.startButton.textContent = "Iniciar AR";
           console.error(error);
@@ -604,8 +850,12 @@
 
       els.restart.addEventListener("click", () => {
         if (currentVideo) currentVideo.pause();
+        if (currentXrSession) currentXrSession.end().catch(() => {});
+        if (currentRenderer) currentRenderer.dispose();
         els.sceneMount.innerHTML = "";
         currentVideo = null;
+        currentXrSession = null;
+        currentRenderer = null;
         objectUrls.splice(0).forEach((url) => URL.revokeObjectURL(url));
         els.hud.classList.remove("is-visible");
         els.setup.style.display = "grid";
