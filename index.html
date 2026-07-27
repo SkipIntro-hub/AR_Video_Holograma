@@ -1,0 +1,1588 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Web AR Hologram Video</title>
+    <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+        --panel: rgba(11, 18, 26, 0.82);
+        --panel-strong: rgba(11, 18, 26, 0.94);
+        --line: rgba(164, 214, 255, 0.28);
+        --text: #eef7ff;
+        --muted: #a8bdd1;
+        --accent: #32e7c8;
+        --warn: #ffd166;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: #03070c;
+        color: var(--text);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+      }
+
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+
+      .shell {
+        position: fixed;
+        inset: 0;
+        z-index: 5;
+        display: grid;
+        place-items: center;
+        padding: 16px;
+        background:
+          linear-gradient(rgba(5, 10, 16, 0.35), rgba(5, 10, 16, 0.72)),
+          radial-gradient(circle at 22% 18%, rgba(50, 231, 200, 0.16), transparent 28%),
+          #03070c;
+      }
+
+      .panel {
+        width: min(560px, 100%);
+        max-height: calc(100dvh - 32px);
+        overflow: auto;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
+        backdrop-filter: blur(18px);
+      }
+
+      .panel header,
+      .panel footer {
+        padding: 18px 18px 0;
+      }
+
+      .panel footer {
+        padding: 0 18px 18px;
+      }
+
+      .panel h1 {
+        margin: 0;
+        font-size: clamp(1.35rem, 5vw, 2rem);
+        line-height: 1.05;
+        letter-spacing: 0;
+      }
+
+      .panel p {
+        margin: 10px 0 0;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+
+      .controls {
+        display: grid;
+        gap: 14px;
+        padding: 18px;
+      }
+
+      .field {
+        display: grid;
+        gap: 7px;
+      }
+
+      .field[hidden],
+      .grid[hidden] {
+        display: none;
+      }
+
+      .field span {
+        font-size: 0.86rem;
+        color: var(--muted);
+      }
+
+      .file-row,
+      .inline-row {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 8px;
+      }
+
+      input[type="file"],
+      input[type="url"],
+      input[type="number"],
+      select {
+        width: 100%;
+        min-height: 42px;
+        border: 1px solid rgba(164, 214, 255, 0.24);
+        border-radius: 6px;
+        background: rgba(2, 8, 14, 0.74);
+        color: var(--text);
+        padding: 9px 10px;
+        outline: none;
+      }
+
+      input:focus,
+      select:focus {
+        border-color: rgba(50, 231, 200, 0.74);
+        box-shadow: 0 0 0 3px rgba(50, 231, 200, 0.14);
+      }
+
+      input[type="range"] {
+        accent-color: var(--accent);
+        width: 100%;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .value {
+        color: var(--text);
+      }
+
+      .start {
+        width: 100%;
+        min-height: 48px;
+        border: 0;
+        border-radius: 6px;
+        background: linear-gradient(135deg, #32e7c8, #76b8ff);
+        color: #031018;
+        font-weight: 800;
+        cursor: pointer;
+      }
+
+      .start:disabled {
+        cursor: wait;
+        opacity: 0.68;
+      }
+
+      .hint {
+        border-top: 1px solid rgba(164, 214, 255, 0.16);
+        padding-top: 12px;
+        font-size: 0.86rem;
+      }
+
+      .hud {
+        position: fixed;
+        left: 12px;
+        right: 12px;
+        bottom: max(12px, env(safe-area-inset-bottom));
+        z-index: 4;
+        display: none;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        min-height: 44px;
+        border: 1px solid rgba(164, 214, 255, 0.2);
+        border-radius: 8px;
+        background: var(--panel-strong);
+        padding: 8px 10px;
+        backdrop-filter: blur(14px);
+      }
+
+      .hud.is-visible {
+        display: flex;
+      }
+
+      .status {
+        min-width: 0;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      .status strong {
+        color: var(--text);
+      }
+
+      .hud button {
+        min-width: 44px;
+        min-height: 36px;
+        border: 1px solid rgba(164, 214, 255, 0.24);
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--text);
+        cursor: pointer;
+      }
+
+      .error {
+        display: none;
+        margin-top: 10px;
+        border: 1px solid rgba(255, 209, 102, 0.34);
+        border-radius: 6px;
+        color: var(--warn);
+        background: rgba(255, 209, 102, 0.08);
+        padding: 10px;
+        line-height: 1.35;
+      }
+
+      .error.is-visible {
+        display: block;
+      }
+
+      .save-sheet {
+        position: fixed;
+        left: 12px;
+        right: 12px;
+        top: max(12px, env(safe-area-inset-top));
+        z-index: 6;
+        display: none;
+        gap: 10px;
+        align-items: center;
+        justify-content: space-between;
+        border: 1px solid rgba(164, 214, 255, 0.26);
+        border-radius: 8px;
+        background: var(--panel-strong);
+        padding: 10px;
+        backdrop-filter: blur(14px);
+      }
+
+      .save-sheet.is-visible {
+        display: flex;
+      }
+
+      .save-sheet span {
+        min-width: 0;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      .save-sheet strong {
+        color: var(--text);
+      }
+
+      .save-actions {
+        display: flex;
+        gap: 8px;
+        flex: none;
+      }
+
+      .save-actions a,
+      .save-actions button {
+        min-height: 36px;
+        border: 1px solid rgba(164, 214, 255, 0.24);
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--text);
+        padding: 8px 10px;
+        text-decoration: none;
+        cursor: pointer;
+      }
+
+      #sceneMount,
+      a-scene {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      .iphone-stage {
+        position: fixed;
+        inset: 0;
+        z-index: 1;
+        overflow: hidden;
+        background: #000;
+        touch-action: none;
+      }
+
+      .camera-feed {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .floating-hologram {
+        position: absolute;
+        left: 50%;
+        top: 48%;
+        width: min(72vw, 420px);
+        aspect-ratio: 16 / 9;
+        transform: translate(-50%, -50%);
+        border: 1px solid rgba(127, 255, 234, 0.55);
+        box-shadow:
+          0 0 28px rgba(44, 233, 255, 0.4),
+          inset 0 0 18px rgba(44, 233, 255, 0.22);
+        background: rgba(44, 233, 255, 0.08);
+        overflow: hidden;
+        touch-action: none;
+        animation: holoFloat 5.6s ease-in-out infinite;
+      }
+
+      .floating-hologram video {
+        position: relative;
+        z-index: 1;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        opacity: var(--video-opacity, 0.88);
+        mix-blend-mode: screen;
+        pointer-events: none;
+      }
+
+      .floating-hologram::before,
+      .floating-hologram::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .floating-hologram::before {
+        background: repeating-linear-gradient(
+          to bottom,
+          rgba(255, 255, 255, 0.11) 0,
+          rgba(255, 255, 255, 0.11) 1px,
+          transparent 1px,
+          transparent 6px
+        );
+        opacity: 0.42;
+      }
+
+      .floating-hologram::after {
+        border: 1px solid rgba(127, 255, 234, 0.34);
+        box-shadow: inset 0 0 24px rgba(50, 231, 200, 0.24);
+      }
+
+      .holo-corner {
+        position: absolute;
+        width: 28px;
+        height: 28px;
+        border-color: rgba(151, 255, 236, 0.92);
+        pointer-events: none;
+        filter: drop-shadow(0 0 8px rgba(44, 233, 255, 0.7));
+        z-index: 3;
+      }
+
+      .holo-corner.tl {
+        left: 8px;
+        top: 8px;
+        border-left: 2px solid;
+        border-top: 2px solid;
+      }
+
+      .holo-corner.tr {
+        right: 8px;
+        top: 8px;
+        border-right: 2px solid;
+        border-top: 2px solid;
+      }
+
+      .holo-corner.bl {
+        left: 8px;
+        bottom: 8px;
+        border-left: 2px solid;
+        border-bottom: 2px solid;
+      }
+
+      .holo-corner.br {
+        right: 8px;
+        bottom: 8px;
+        border-right: 2px solid;
+        border-bottom: 2px solid;
+      }
+
+      .holo-scan {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: -18%;
+        height: 18%;
+        background: linear-gradient(
+          to bottom,
+          transparent,
+          rgba(134, 255, 238, 0.1),
+          rgba(134, 255, 238, 0.44),
+          rgba(134, 255, 238, 0.08),
+          transparent
+        );
+        pointer-events: none;
+        mix-blend-mode: screen;
+        animation: holoScan 3.2s linear infinite;
+        z-index: 3;
+      }
+
+      .holo-signal {
+        position: absolute;
+        right: 12px;
+        top: 10px;
+        width: 56px;
+        height: 18px;
+        pointer-events: none;
+        background:
+          linear-gradient(90deg, rgba(127, 255, 234, 0.8) 0 7%, transparent 7% 18%),
+          linear-gradient(90deg, transparent 0 22%, rgba(127, 255, 234, 0.65) 22% 34%, transparent 34% 48%),
+          linear-gradient(90deg, transparent 0 52%, rgba(127, 255, 234, 0.5) 52% 70%, transparent 70%);
+        opacity: 0.7;
+        filter: drop-shadow(0 0 8px rgba(44, 233, 255, 0.8));
+        z-index: 3;
+      }
+
+      @keyframes holoScan {
+        from {
+          transform: translateY(0);
+        }
+
+        to {
+          transform: translateY(760%);
+        }
+      }
+
+      @keyframes holoFloat {
+        0%,
+        100% {
+          filter: hue-rotate(0deg) brightness(1);
+        }
+
+        50% {
+          filter: hue-rotate(5deg) brightness(1.08);
+        }
+      }
+
+      .a-loader-title {
+        color: var(--text);
+      }
+
+      @media (max-width: 520px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main id="setup" class="shell" aria-label="Configuracion Web AR">
+      <section class="panel">
+        <header>
+          <h1>Pantalla holograma en Web AR</h1>
+          <p>
+            Carga un archivo <strong>.mind</strong> y un video para reproducirlo como textura
+            sobre el image tracker.
+          </p>
+        </header>
+
+        <div class="controls">
+          <label class="field">
+            <span>Modo AR</span>
+            <select id="trackingMode">
+              <option value="iphone">iPhone simple</option>
+              <option value="manual">Colocacion manual</option>
+              <option value="mind">Image tracker .mind</option>
+            </select>
+          </label>
+
+          <label id="mindFileField" class="field">
+            <span>Archivo .mind</span>
+            <input id="mindFile" type="file" accept=".mind" />
+          </label>
+
+          <label id="mindUrlField" class="field">
+            <span>URL del .mind si ya esta publicado</span>
+            <input id="mindUrl" type="url" placeholder="./targets.mind" />
+          </label>
+
+          <label class="field">
+            <span>Video</span>
+            <input id="videoFile" type="file" accept="video/mp4,video/webm,video/quicktime" />
+          </label>
+
+          <label class="field">
+            <span>URL del video si ya esta publicado</span>
+            <input id="videoUrl" type="url" placeholder="./video.mp4" />
+          </label>
+
+          <div class="grid">
+            <label id="widthField" class="field">
+              <span>Ancho <strong id="widthValue" class="value">1.00</strong></span>
+              <input id="screenWidth" type="range" min="0.35" max="2.4" step="0.05" value="1" />
+            </label>
+
+            <label id="heightField" class="field">
+              <span>Alto <strong id="heightValue" class="value">0.56</strong></span>
+              <input id="screenHeight" type="range" min="0.2" max="1.8" step="0.04" value="0.56" />
+            </label>
+
+            <label class="field">
+              <span>Opacidad <strong id="opacityValue" class="value">0.88</strong></span>
+              <input id="opacity" type="range" min="0.2" max="1" step="0.02" value="0.88" />
+            </label>
+
+            <label class="field">
+              <span>Estilo</span>
+              <select id="styleMode">
+                <option value="hologram">Holograma</option>
+                <option value="screen">Pantalla limpia</option>
+                <option value="chroma">Chroma verde</option>
+              </select>
+            </label>
+
+            <label id="targetIndexField" class="field">
+              <span>Target index</span>
+              <input id="targetIndex" type="number" min="0" step="1" value="0" />
+            </label>
+          </div>
+
+          <button id="startButton" class="start" type="button">Iniciar AR</button>
+
+          <div id="errorBox" class="error" role="alert"></div>
+
+          <p class="hint">
+            En iPhone simple, arrastra y pellizca el holograma sobre la camara. En modo .mind,
+            apunta a la imagen usada para generar el tracker. En colocacion manual, toca una
+            superficie detectada para ubicar la pantalla.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <div id="sceneMount" aria-hidden="true"></div>
+
+    <aside id="saveSheet" class="save-sheet" aria-live="polite">
+      <span><strong>Grabacion lista</strong> usa Compartir para guardar el video</span>
+      <div class="save-actions">
+        <button id="shareRecording" type="button">Compartir</button>
+      </div>
+    </aside>
+
+    <aside id="hud" class="hud" aria-live="polite">
+      <div id="status" class="status"><strong>Buscando target</strong></div>
+      <button id="playPause" type="button" aria-label="Pausar o reproducir video">Pausa</button>
+      <button id="restartVideo" type="button" aria-label="Reiniciar video">Inicio</button>
+      <button id="recordVideo" type="button" aria-label="Grabar composicion">Grabar</button>
+      <button id="toggleSound" type="button" aria-label="Activar o silenciar video">Audio</button>
+      <button id="restart" type="button" aria-label="Cambiar archivos">Cambiar</button>
+    </aside>
+
+    <script>
+      const els = {
+        setup: document.getElementById("setup"),
+        mindFile: document.getElementById("mindFile"),
+        mindUrl: document.getElementById("mindUrl"),
+        mindFileField: document.getElementById("mindFileField"),
+        mindUrlField: document.getElementById("mindUrlField"),
+        videoFile: document.getElementById("videoFile"),
+        videoUrl: document.getElementById("videoUrl"),
+        startButton: document.getElementById("startButton"),
+        errorBox: document.getElementById("errorBox"),
+        sceneMount: document.getElementById("sceneMount"),
+        saveSheet: document.getElementById("saveSheet"),
+        shareRecording: document.getElementById("shareRecording"),
+        hud: document.getElementById("hud"),
+        status: document.getElementById("status"),
+        playPause: document.getElementById("playPause"),
+        restartVideo: document.getElementById("restartVideo"),
+        recordVideo: document.getElementById("recordVideo"),
+        toggleSound: document.getElementById("toggleSound"),
+        restart: document.getElementById("restart"),
+        width: document.getElementById("screenWidth"),
+        widthField: document.getElementById("widthField"),
+        height: document.getElementById("screenHeight"),
+        heightField: document.getElementById("heightField"),
+        opacity: document.getElementById("opacity"),
+        styleMode: document.getElementById("styleMode"),
+        trackingMode: document.getElementById("trackingMode"),
+        targetIndex: document.getElementById("targetIndex"),
+        targetIndexField: document.getElementById("targetIndexField"),
+        widthValue: document.getElementById("widthValue"),
+        heightValue: document.getElementById("heightValue"),
+        opacityValue: document.getElementById("opacityValue")
+      };
+
+      const objectUrls = [];
+      let currentVideo = null;
+      let currentXrSession = null;
+      let currentRenderer = null;
+      let currentCameraStream = null;
+      let currentIphoneOverlay = null;
+      let currentRecorder = null;
+      let recordChunks = [];
+      let recordFrameId = null;
+      let latestRecording = null;
+      let audioContext = null;
+      let audioDestination = null;
+      let audioSourceNode = null;
+
+      function setError(message) {
+        els.errorBox.textContent = message;
+        els.errorBox.classList.toggle("is-visible", Boolean(message));
+      }
+
+      function updatePlaybackButtons() {
+        if (!currentVideo) {
+          els.playPause.textContent = "Pausa";
+          return;
+        }
+
+        els.playPause.textContent = currentVideo.paused ? "Play" : "Pausa";
+        els.restartVideo.textContent = "Inicio";
+      }
+
+      function bindVideoControls(video) {
+        video.addEventListener("play", updatePlaybackButtons);
+        video.addEventListener("pause", updatePlaybackButtons);
+        video.addEventListener("ended", updatePlaybackButtons);
+        updatePlaybackButtons();
+      }
+
+      function drawCover(ctx, media, x, y, width, height) {
+        const mediaWidth = media.videoWidth || width;
+        const mediaHeight = media.videoHeight || height;
+        const scale = Math.max(width / mediaWidth, height / mediaHeight);
+        const drawWidth = mediaWidth * scale;
+        const drawHeight = mediaHeight * scale;
+        const drawX = x + (width - drawWidth) / 2;
+        const drawY = y + (height - drawHeight) / 2;
+        ctx.drawImage(media, drawX, drawY, drawWidth, drawHeight);
+      }
+
+      function drawHoloHud(ctx, x, y, width, height, time) {
+        const corner = Math.max(14, Math.min(width, height) * 0.09);
+        const inset = 7;
+        const scanY = y + ((time / 3200) % 1) * height;
+
+        ctx.save();
+        ctx.strokeStyle = "rgba(151, 255, 236, 0.92)";
+        ctx.lineWidth = 2;
+        ctx.shadowColor = "rgba(44, 233, 255, 0.75)";
+        ctx.shadowBlur = 12;
+
+        [
+          [x + inset, y + inset, 1, 1],
+          [x + width - inset, y + inset, -1, 1],
+          [x + inset, y + height - inset, 1, -1],
+          [x + width - inset, y + height - inset, -1, -1]
+        ].forEach(([cx, cy, sx, sy]) => {
+          ctx.beginPath();
+          ctx.moveTo(cx, cy + sy * corner);
+          ctx.lineTo(cx, cy);
+          ctx.lineTo(cx + sx * corner, cy);
+          ctx.stroke();
+        });
+
+        const gradient = ctx.createLinearGradient(0, scanY - height * 0.07, 0, scanY + height * 0.07);
+        gradient.addColorStop(0, "rgba(134, 255, 238, 0)");
+        gradient.addColorStop(0.5, "rgba(134, 255, 238, 0.38)");
+        gradient.addColorStop(1, "rgba(134, 255, 238, 0)");
+        ctx.fillStyle = gradient;
+        ctx.fillRect(x, scanY - height * 0.07, width, height * 0.14);
+
+        ctx.globalAlpha = 0.86;
+        ctx.fillStyle = "rgba(50, 231, 200, 0.9)";
+        ctx.beginPath();
+        ctx.arc(x + 7, y + height - 20, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        for (let i = 0; i < 3; i += 1) {
+          ctx.fillRect(x + width - 58 + i * 16, y + 12, 8, 14 - i * 3);
+        }
+        ctx.restore();
+      }
+
+      function stopRecording() {
+        if (recordFrameId) {
+          cancelAnimationFrame(recordFrameId);
+          recordFrameId = null;
+        }
+
+        if (currentRecorder && currentRecorder.state !== "inactive") {
+          currentRecorder.stop();
+        }
+      }
+
+      function pickRecordingMimeType() {
+        const options = [
+          "video/mp4;codecs=avc1.42E01E",
+          "video/mp4",
+          "video/webm;codecs=vp9",
+          "video/webm"
+        ];
+
+        if (!MediaRecorder.isTypeSupported) return "";
+        return options.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+      }
+
+      function captureVideoAudioTracks(video) {
+        const capture = video.captureStream || video.mozCaptureStream;
+        if (capture) {
+          try {
+            const tracks = capture.call(video).getAudioTracks();
+            if (tracks.length) return tracks;
+          } catch (error) {
+            // Fall through to Web Audio.
+          }
+        }
+
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return [];
+
+        try {
+          if (!audioContext) audioContext = new AudioContextClass();
+          if (!audioDestination) audioDestination = audioContext.createMediaStreamDestination();
+          if (!audioSourceNode) {
+            audioSourceNode = audioContext.createMediaElementSource(video);
+            audioSourceNode.connect(audioDestination);
+            audioSourceNode.connect(audioContext.destination);
+          }
+          if (audioContext.state === "suspended") audioContext.resume().catch(() => {});
+          return audioDestination.stream.getAudioTracks();
+        } catch (error) {
+          return [];
+        }
+      }
+
+      function clearLatestRecording() {
+        if (latestRecording && latestRecording.url) {
+          URL.revokeObjectURL(latestRecording.url);
+        }
+
+        latestRecording = null;
+        els.saveSheet.classList.remove("is-visible");
+      }
+
+      function clearAudioCapture() {
+        try {
+          if (audioSourceNode) audioSourceNode.disconnect();
+        } catch (error) {}
+
+        try {
+          if (audioDestination) audioDestination.disconnect();
+        } catch (error) {}
+
+        audioSourceNode = null;
+        audioDestination = null;
+      }
+
+      function startIphoneRecording() {
+        if (!currentIphoneOverlay || !currentVideo) {
+          throw new Error("record-iphone-only");
+        }
+
+        if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) {
+          throw new Error("record-unsupported");
+        }
+
+        currentVideo.muted = false;
+        els.toggleSound.textContent = "Mute";
+
+        const { cameraFeed, state, mode, opacity } = currentIphoneOverlay;
+        const canvas = document.createElement("canvas");
+        const maxWidth = 720;
+        canvas.width = maxWidth;
+        canvas.height = Math.round(maxWidth * (window.innerHeight / window.innerWidth));
+        const ctx = canvas.getContext("2d");
+        const canvasStream = canvas.captureStream(30);
+        const audioTracks = captureVideoAudioTracks(currentVideo);
+        const stream = new MediaStream([
+          ...canvasStream.getVideoTracks(),
+          ...audioTracks
+        ]);
+        const mimeType = pickRecordingMimeType();
+        const extension = mimeType.includes("mp4") ? "mp4" : "webm";
+
+        recordChunks = [];
+        currentRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+        currentRecorder.addEventListener("dataavailable", (event) => {
+          if (event.data && event.data.size) recordChunks.push(event.data);
+        });
+        currentRecorder.addEventListener("stop", () => {
+          clearLatestRecording();
+          const blob = new Blob(recordChunks, { type: mimeType || "video/webm" });
+          const url = URL.createObjectURL(blob);
+          const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+          const fileName = `holograma-${stamp}.${extension}`;
+          latestRecording = { blob, url, fileName, mimeType: blob.type };
+          els.saveSheet.classList.add("is-visible");
+          recordChunks = [];
+          currentRecorder = null;
+          els.recordVideo.textContent = "Grabar";
+          els.status.innerHTML = "<strong>Grabacion lista</strong> toca Compartir";
+        });
+
+        function drawFrame(time = performance.now()) {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          drawCover(ctx, cameraFeed, 0, 0, canvas.width, canvas.height);
+
+          const scaleX = canvas.width / window.innerWidth;
+          const scaleY = canvas.height / window.innerHeight;
+          const baseWidth = Math.min(window.innerWidth * 0.72, 420);
+          const holoWidth = baseWidth * state.scale * scaleX;
+          const holoHeight = holoWidth * 9 / 16;
+          const holoX = state.x * scaleX - holoWidth / 2;
+          const holoY = state.y * scaleY - holoHeight / 2;
+
+          ctx.save();
+          ctx.globalAlpha = opacity;
+          ctx.globalCompositeOperation = mode === "screen" ? "source-over" : "lighter";
+          drawCover(ctx, currentVideo, holoX, holoY, holoWidth, holoHeight);
+          ctx.restore();
+
+          if (mode !== "screen") {
+            ctx.save();
+            ctx.strokeStyle = "rgba(127, 255, 234, 0.72)";
+            ctx.lineWidth = 2;
+            ctx.shadowColor = "rgba(44, 233, 255, 0.65)";
+            ctx.shadowBlur = 18;
+            ctx.strokeRect(holoX, holoY, holoWidth, holoHeight);
+            ctx.globalAlpha = 0.26;
+            ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
+            for (let y = holoY; y < holoY + holoHeight; y += 6) {
+              ctx.fillRect(holoX, y, holoWidth, 1);
+            }
+            ctx.restore();
+            drawHoloHud(ctx, holoX, holoY, holoWidth, holoHeight, time);
+          }
+
+          recordFrameId = requestAnimationFrame(drawFrame);
+        }
+
+        currentRecorder.start();
+        els.recordVideo.textContent = "Stop";
+        els.status.innerHTML = audioTracks.length
+          ? "<strong>Grabando</strong> con audio"
+          : "<strong>Grabando</strong> sin audio";
+        drawFrame();
+      }
+
+      function fileOrUrl(fileInput, urlInput) {
+        if (fileInput.files && fileInput.files[0]) {
+          const url = URL.createObjectURL(fileInput.files[0]);
+          objectUrls.push(url);
+          return url;
+        }
+
+        const typedUrl = urlInput.value.trim();
+        return typedUrl;
+      }
+
+      function updateValueLabels() {
+        els.widthValue.textContent = Number(els.width.value).toFixed(2);
+        els.heightValue.textContent = Number(els.height.value).toFixed(2);
+        els.opacityValue.textContent = Number(els.opacity.value).toFixed(2);
+      }
+
+      ["input", "change"].forEach((eventName) => {
+        els.width.addEventListener(eventName, updateValueLabels);
+        els.height.addEventListener(eventName, updateValueLabels);
+        els.opacity.addEventListener(eventName, updateValueLabels);
+      });
+      updateValueLabels();
+
+      function updateModeCopy() {
+        const usingMind = els.trackingMode.value === "mind";
+        const usingIphone = els.trackingMode.value === "iphone";
+        els.mindFile.disabled = !usingMind;
+        els.mindUrl.disabled = !usingMind;
+        els.targetIndex.disabled = !usingMind;
+        els.mindFileField.hidden = !usingMind;
+        els.mindUrlField.hidden = !usingMind;
+        els.targetIndexField.hidden = !usingMind;
+        els.widthField.hidden = usingIphone;
+        els.heightField.hidden = usingIphone;
+        els.videoFile.disabled = false;
+        els.videoUrl.disabled = false;
+      }
+
+      els.trackingMode.addEventListener("change", updateModeCopy);
+      updateModeCopy();
+
+      AFRAME.registerShader("chroma-video", {
+        schema: {
+          src: { type: "map", is: "uniform" },
+          opacity: { type: "number", is: "uniform", default: 0.9 },
+          keyColor: { type: "color", is: "uniform", default: "#00ff00" },
+          threshold: { type: "number", is: "uniform", default: 0.34 },
+          edge: { type: "number", is: "uniform", default: 0.08 }
+        },
+        vertexShader: `
+          varying vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: `
+          uniform sampler2D src;
+          uniform vec3 keyColor;
+          uniform float threshold;
+          uniform float edge;
+          uniform float opacity;
+          varying vec2 vUv;
+
+          void main() {
+            vec4 tex = texture2D(src, vUv);
+            float diff = distance(tex.rgb, keyColor);
+            float alpha = smoothstep(threshold, threshold + edge, diff) * tex.a * opacity;
+            gl_FragColor = vec4(tex.rgb, alpha);
+          }
+        `
+      });
+
+      AFRAME.registerComponent("hologram-tune", {
+        schema: {
+          mode: { default: "hologram" },
+          opacity: { default: 0.88 }
+        },
+        init() {
+          this.el.addEventListener("object3dset", () => this.apply());
+        },
+        update() {
+          this.apply();
+        },
+        apply() {
+          const mesh = this.el.getObject3D("mesh");
+          if (!mesh || !mesh.material) return;
+
+          const material = mesh.material;
+          material.transparent = true;
+          material.depthWrite = false;
+          material.side = THREE.DoubleSide;
+          material.opacity = this.data.opacity;
+
+          if (this.data.mode === "hologram") {
+            material.blending = THREE.AdditiveBlending;
+            material.color = new THREE.Color("#8dfcff");
+          } else {
+            material.blending = THREE.NormalBlending;
+            material.color = new THREE.Color("#ffffff");
+          }
+
+          material.needsUpdate = true;
+        }
+      });
+
+      AFRAME.registerComponent("video-target-control", {
+        schema: {
+          video: { type: "selector" }
+        },
+        init() {
+          const video = this.data.video;
+
+          this.el.addEventListener("targetFound", () => {
+            els.status.innerHTML = "<strong>Target detectado</strong> reproduciendo video";
+            if (video) video.play().catch(() => {});
+          });
+
+          this.el.addEventListener("targetLost", () => {
+            els.status.innerHTML = "<strong>Buscando target</strong>";
+            if (video) video.pause();
+          });
+        }
+      });
+
+      function makeVideoMaterial(video, opacity, mode) {
+        const texture = new THREE.VideoTexture(video);
+        texture.colorSpace = THREE.SRGBColorSpace;
+
+        if (mode === "chroma") {
+          return new THREE.ShaderMaterial({
+            uniforms: {
+              map: { value: texture },
+              opacity: { value: opacity },
+              keyColor: { value: new THREE.Color("#00ff00") },
+              threshold: { value: 0.34 },
+              edge: { value: 0.08 }
+            },
+            vertexShader: `
+              varying vec2 vUv;
+              void main() {
+                vUv = uv;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+              }
+            `,
+            fragmentShader: `
+              uniform sampler2D map;
+              uniform vec3 keyColor;
+              uniform float threshold;
+              uniform float edge;
+              uniform float opacity;
+              varying vec2 vUv;
+
+              void main() {
+                vec4 tex = texture2D(map, vUv);
+                float diff = distance(tex.rgb, keyColor);
+                float alpha = smoothstep(threshold, threshold + edge, diff) * tex.a * opacity;
+                gl_FragColor = vec4(tex.rgb, alpha);
+              }
+            `,
+            transparent: true,
+            depthWrite: false,
+            side: THREE.DoubleSide
+          });
+        }
+
+        return new THREE.MeshBasicMaterial({
+          map: texture,
+          transparent: true,
+          opacity,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          blending: mode === "hologram" ? THREE.AdditiveBlending : THREE.NormalBlending,
+          color: mode === "hologram" ? new THREE.Color("#8dfcff") : new THREE.Color("#ffffff")
+        });
+      }
+
+      async function buildManualScene({ videoSrc, width, height, opacity, mode }) {
+        if (!navigator.xr) {
+          throw new Error("manual-unsupported");
+        }
+
+        let session;
+        try {
+          session = await navigator.xr.requestSession("immersive-ar", {
+            requiredFeatures: ["hit-test"],
+            optionalFeatures: ["dom-overlay", "local-floor"],
+            domOverlay: { root: document.body }
+          });
+        } catch (error) {
+          throw new Error("manual-unsupported");
+        }
+
+        els.sceneMount.innerHTML = "";
+
+        const video = document.createElement("video");
+        video.id = "hologramVideo";
+        video.src = videoSrc;
+        video.setAttribute("playsinline", "");
+        video.setAttribute("webkit-playsinline", "");
+        video.setAttribute("preload", "auto");
+        video.crossOrigin = "anonymous";
+        video.loop = true;
+        video.muted = true;
+        currentVideo = video;
+        bindVideoControls(video);
+
+        await video.play();
+        video.pause();
+
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera();
+        const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.xr.enabled = true;
+        currentRenderer = renderer;
+        els.sceneMount.appendChild(renderer.domElement);
+
+        const screen = new THREE.Mesh(
+          new THREE.PlaneGeometry(width, height),
+          makeVideoMaterial(video, opacity, mode)
+        );
+        screen.visible = false;
+        scene.add(screen);
+
+        const glow = new THREE.Mesh(
+          new THREE.PlaneGeometry(width * 1.08, height * 1.14),
+          new THREE.MeshBasicMaterial({
+            color: "#2ce9ff",
+            transparent: true,
+            opacity: mode === "screen" ? 0 : 0.12,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+            blending: THREE.AdditiveBlending
+          })
+        );
+        glow.visible = false;
+        scene.add(glow);
+
+        const reticle = new THREE.Mesh(
+          new THREE.RingGeometry(0.08, 0.105, 36).rotateX(-Math.PI / 2),
+          new THREE.MeshBasicMaterial({
+            color: "#32e7c8",
+            transparent: true,
+            opacity: 0.82,
+            depthWrite: false
+          })
+        );
+        reticle.matrixAutoUpdate = false;
+        reticle.visible = false;
+        scene.add(reticle);
+
+        currentXrSession = session;
+        renderer.xr.setSession(session);
+        els.status.innerHTML = "<strong>Busca una superficie</strong> toca para colocar";
+
+        const referenceSpace = await session.requestReferenceSpace("local");
+        const viewerSpace = await session.requestReferenceSpace("viewer");
+        const hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
+
+        function placeScreen() {
+          if (!reticle.visible) return;
+
+          const placedPosition = new THREE.Vector3();
+          placedPosition.setFromMatrixPosition(reticle.matrix);
+          placedPosition.y += height / 2;
+
+          screen.position.copy(placedPosition);
+          glow.position.copy(placedPosition);
+
+          const cameraPosition = new THREE.Vector3();
+          camera.getWorldPosition(cameraPosition);
+          screen.lookAt(cameraPosition.x, screen.position.y, cameraPosition.z);
+          glow.quaternion.copy(screen.quaternion);
+
+          screen.visible = true;
+          glow.visible = mode !== "screen";
+          video.play().catch(() => {});
+          els.status.innerHTML = "<strong>Pantalla colocada</strong> toca otra superficie para moverla";
+        }
+
+        const controller = renderer.xr.getController(0);
+        controller.addEventListener("select", placeScreen);
+        scene.add(controller);
+
+        session.addEventListener("end", () => {
+          hitTestSource.cancel();
+          renderer.setAnimationLoop(null);
+          els.status.innerHTML = "<strong>AR finalizado</strong>";
+        });
+
+        renderer.setAnimationLoop((timestamp, frame) => {
+          if (frame) {
+            const hitTestResults = frame.getHitTestResults(hitTestSource);
+            if (hitTestResults.length) {
+              const hit = hitTestResults[0];
+              const pose = hit.getPose(referenceSpace);
+              reticle.visible = true;
+              reticle.matrix.fromArray(pose.transform.matrix);
+            } else {
+              reticle.visible = false;
+            }
+          }
+
+          renderer.render(scene, camera);
+        });
+
+        window.addEventListener("resize", () => {
+          renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+      }
+
+      async function buildIphoneScene({ videoSrc, opacity, mode }) {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error("camera-unsupported");
+        }
+
+        els.sceneMount.innerHTML = "";
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        });
+        currentCameraStream = stream;
+
+        const stage = document.createElement("div");
+        stage.className = "iphone-stage";
+
+        const cameraFeed = document.createElement("video");
+        cameraFeed.className = "camera-feed";
+        cameraFeed.setAttribute("playsinline", "");
+        cameraFeed.setAttribute("webkit-playsinline", "");
+        cameraFeed.autoplay = true;
+        cameraFeed.muted = true;
+        cameraFeed.srcObject = stream;
+
+        const hologram = document.createElement("div");
+        hologram.className = "floating-hologram";
+        hologram.style.setProperty("--video-opacity", String(opacity));
+        if (mode === "screen") {
+          hologram.style.boxShadow = "0 0 16px rgba(255, 255, 255, 0.22)";
+          hologram.style.borderColor = "rgba(255, 255, 255, 0.45)";
+        }
+
+        if (mode !== "screen") {
+          ["tl", "tr", "bl", "br"].forEach((corner) => {
+            const node = document.createElement("span");
+            node.className = `holo-corner ${corner}`;
+            hologram.appendChild(node);
+          });
+
+          const scan = document.createElement("span");
+          scan.className = "holo-scan";
+          hologram.appendChild(scan);
+
+          const signal = document.createElement("span");
+          signal.className = "holo-signal";
+          hologram.appendChild(signal);
+
+        }
+
+        const video = document.createElement("video");
+        video.src = videoSrc;
+        video.loop = true;
+        video.muted = true;
+        video.setAttribute("playsinline", "");
+        video.setAttribute("webkit-playsinline", "");
+        video.setAttribute("preload", "auto");
+        video.crossOrigin = "anonymous";
+        currentVideo = video;
+        bindVideoControls(video);
+
+        hologram.appendChild(video);
+        stage.appendChild(cameraFeed);
+        stage.appendChild(hologram);
+        els.sceneMount.appendChild(stage);
+
+        await cameraFeed.play();
+        await video.play();
+
+        const state = {
+          x: window.innerWidth / 2,
+          y: window.innerHeight * 0.48,
+          scale: 1,
+          startX: 0,
+          startY: 0,
+          startDistance: 0,
+          startScale: 1,
+          dragging: false
+        };
+        currentIphoneOverlay = { cameraFeed, hologram, state, mode, opacity };
+
+        function applyTransform() {
+          const dx = state.x - window.innerWidth / 2;
+          const dy = state.y - window.innerHeight * 0.48;
+          hologram.style.transform = `translate(-50%, -50%) translate(${dx}px, ${dy}px) scale(${state.scale})`;
+        }
+
+        function distance(touchA, touchB) {
+          return Math.hypot(touchA.clientX - touchB.clientX, touchA.clientY - touchB.clientY);
+        }
+
+        hologram.addEventListener(
+          "touchstart",
+          (event) => {
+            event.preventDefault();
+            if (event.touches.length === 1) {
+              state.dragging = true;
+              state.startX = event.touches[0].clientX - state.x;
+              state.startY = event.touches[0].clientY - state.y;
+            }
+
+            if (event.touches.length === 2) {
+              state.dragging = false;
+              state.startDistance = distance(event.touches[0], event.touches[1]);
+              state.startScale = state.scale;
+            }
+          },
+          { passive: false }
+        );
+
+        hologram.addEventListener(
+          "touchmove",
+          (event) => {
+            event.preventDefault();
+            if (event.touches.length === 1 && state.dragging) {
+              state.x = event.touches[0].clientX - state.startX;
+              state.y = event.touches[0].clientY - state.startY;
+              applyTransform();
+            }
+
+            if (event.touches.length === 2 && state.startDistance) {
+              const nextScale = state.startScale * (distance(event.touches[0], event.touches[1]) / state.startDistance);
+              state.scale = Math.min(2.8, Math.max(0.35, nextScale));
+              applyTransform();
+            }
+          },
+          { passive: false }
+        );
+
+        hologram.addEventListener("touchend", () => {
+          state.dragging = false;
+          state.startDistance = 0;
+        });
+
+        els.status.innerHTML = "<strong>Modo iPhone</strong> arrastra y pellizca el video";
+      }
+
+      function buildScene({ mindSrc, videoSrc, width, height, opacity, mode, targetIndex }) {
+        els.sceneMount.innerHTML = "";
+
+        const scene = document.createElement("a-scene");
+        scene.setAttribute(
+          "mindar-image",
+          `imageTargetSrc: ${mindSrc}; filterMinCF: 0.0005; filterBeta: 0.08; warmupTolerance: 5; missTolerance: 5`
+        );
+        scene.setAttribute("color-space", "sRGB");
+        scene.setAttribute("renderer", "colorManagement: true, physicallyCorrectLights: false; antialias: true");
+        scene.setAttribute("vr-mode-ui", "enabled: false");
+        scene.setAttribute("device-orientation-permission-ui", "enabled: false");
+        scene.setAttribute("embedded", "");
+        scene.addEventListener("arReady", () => {
+          els.status.innerHTML = "<strong>Camara lista</strong> apunta al target";
+        });
+        scene.addEventListener("arError", () => {
+          els.status.innerHTML = "<strong>Error AR</strong> revisa permisos de camara";
+        });
+        scene.addEventListener("loaded", () => {
+          els.status.innerHTML = "<strong>Cargando tracker</strong>";
+        });
+
+        const assets = document.createElement("a-assets");
+        assets.setAttribute("timeout", "30000");
+
+        const video = document.createElement("video");
+        video.id = "hologramVideo";
+        video.src = videoSrc;
+        video.setAttribute("playsinline", "");
+        video.setAttribute("webkit-playsinline", "");
+        video.setAttribute("preload", "auto");
+        video.crossOrigin = "anonymous";
+        video.loop = true;
+        video.muted = true;
+        currentVideo = video;
+        bindVideoControls(video);
+
+        assets.appendChild(video);
+        scene.appendChild(assets);
+
+        const camera = document.createElement("a-camera");
+        camera.setAttribute("position", "0 0 0");
+        camera.setAttribute("look-controls", "enabled: false");
+        scene.appendChild(camera);
+
+        const target = document.createElement("a-entity");
+        target.setAttribute("id", "trackedTarget");
+        target.setAttribute("mindar-image-target", `targetIndex: ${targetIndex}`);
+        target.setAttribute("video-target-control", "video: #hologramVideo");
+
+        const screen = document.createElement("a-plane");
+        screen.setAttribute("id", "videoScreen");
+        screen.setAttribute("position", "0 0 0.02");
+        screen.setAttribute("rotation", "0 0 0");
+        screen.setAttribute("width", String(width));
+        screen.setAttribute("height", String(height));
+
+        if (mode === "chroma") {
+          screen.setAttribute(
+            "material",
+            `shader: chroma-video; src: #hologramVideo; opacity: ${opacity}; transparent: true`
+          );
+        } else {
+          screen.setAttribute(
+            "material",
+            `shader: flat; src: #hologramVideo; transparent: true; opacity: ${opacity}; alphaTest: 0.02; side: double`
+          );
+          screen.setAttribute("hologram-tune", `mode: ${mode}; opacity: ${opacity}`);
+        }
+
+        const glow = document.createElement("a-plane");
+        glow.setAttribute("position", "0 0 -0.002");
+        glow.setAttribute("width", String(width * 1.08));
+        glow.setAttribute("height", String(height * 1.14));
+        glow.setAttribute(
+          "material",
+          "shader: flat; color: #2ce9ff; transparent: true; opacity: 0.12; side: double; depthWrite: false"
+        );
+        glow.setAttribute(
+          "animation__pulse",
+          "property: material.opacity; from: 0.08; to: 0.2; dur: 1400; dir: alternate; loop: true; easing: easeInOutSine"
+        );
+        glow.setAttribute("visible", mode === "screen" ? "false" : "true");
+
+        const frame = document.createElement("a-ring");
+        frame.setAttribute("position", "0 0 0.015");
+        frame.setAttribute("rotation", "0 0 0");
+        frame.setAttribute("radius-inner", String(Math.max(width, height) * 0.58));
+        frame.setAttribute("radius-outer", String(Math.max(width, height) * 0.595));
+        frame.setAttribute(
+          "material",
+          "shader: flat; color: #7fffea; transparent: true; opacity: 0.34; side: double; depthWrite: false"
+        );
+        frame.setAttribute(
+          "animation__spin",
+          "property: rotation; to: 0 0 360; dur: 9000; easing: linear; loop: true"
+        );
+        frame.setAttribute("visible", mode === "screen" ? "false" : "true");
+
+        target.appendChild(glow);
+        target.appendChild(screen);
+        target.appendChild(frame);
+        scene.appendChild(target);
+
+        els.sceneMount.appendChild(scene);
+        return { scene, video };
+      }
+
+      async function startAr() {
+        setError("");
+        els.startButton.disabled = true;
+        els.startButton.textContent = "Preparando camara...";
+
+        try {
+          const mindSrc = fileOrUrl(els.mindFile, els.mindUrl);
+          const videoSrc = fileOrUrl(els.videoFile, els.videoUrl);
+          const usingMind = els.trackingMode.value === "mind";
+          const usingIphone = els.trackingMode.value === "iphone";
+
+          if (usingMind && !mindSrc) {
+            throw new Error("missing-mind");
+          }
+
+          if (!videoSrc) {
+            throw new Error("missing-video");
+          }
+
+          const config = {
+            mindSrc,
+            videoSrc,
+            width: Number(els.width.value),
+            height: Number(els.height.value),
+            opacity: Number(els.opacity.value),
+            mode: els.styleMode.value,
+            targetIndex: Number(els.targetIndex.value)
+          };
+
+          els.setup.style.display = "none";
+          els.hud.classList.add("is-visible");
+          els.status.innerHTML = "<strong>Cargando AR</strong>";
+
+          if (usingMind) {
+            const { video } = buildScene(config);
+            await video.play();
+            video.pause();
+          } else if (usingIphone) {
+            await buildIphoneScene(config);
+          } else {
+            await buildManualScene(config);
+          }
+        } catch (error) {
+          if (currentCameraStream) currentCameraStream.getTracks().forEach((track) => track.stop());
+          currentCameraStream = null;
+          currentIphoneOverlay = null;
+          const message =
+            error.message === "missing-mind"
+              ? "Falta cargar el archivo .mind o escribir una URL del .mind."
+              : error.message === "missing-video"
+                ? "Falta cargar el video o escribir una URL del video."
+                : error.message === "manual-unsupported"
+                  ? "Este navegador no soporta colocacion manual WebXR. Probalo en Android Chrome con HTTPS, o usamos otro flujo para iPhone."
+                  : error.message === "camera-unsupported"
+                    ? "Este navegador no permite abrir la camara desde la pagina. Probalo con Safari en iPhone usando HTTPS."
+                    : error.message === "record-unsupported"
+                      ? "Este navegador no permite grabar esta composicion desde la pagina."
+                      : error.message === "record-iphone-only"
+                        ? "La grabacion integrada esta disponible en el modo iPhone simple."
+                        : "No pude iniciar la experiencia. Revisa que el .mind y el video existan, y que estes en HTTPS o localhost para permitir la camara.";
+          setError(message);
+          els.setup.style.display = "grid";
+          els.hud.classList.remove("is-visible");
+          els.startButton.disabled = false;
+          els.startButton.textContent = "Iniciar AR";
+          console.error(error);
+        }
+      }
+
+      els.startButton.addEventListener("click", startAr);
+
+      els.playPause.addEventListener("click", () => {
+        if (!currentVideo) return;
+
+        if (currentVideo.paused) {
+          currentVideo.play().catch(() => {});
+        } else {
+          currentVideo.pause();
+        }
+
+        updatePlaybackButtons();
+      });
+
+      els.restartVideo.addEventListener("click", () => {
+        if (!currentVideo) return;
+
+        currentVideo.currentTime = 0;
+        currentVideo.play().catch(() => {});
+        updatePlaybackButtons();
+      });
+
+      els.recordVideo.addEventListener("click", () => {
+        setError("");
+
+        try {
+          if (currentRecorder && currentRecorder.state === "recording") {
+            stopRecording();
+          } else {
+            clearLatestRecording();
+            startIphoneRecording();
+          }
+        } catch (error) {
+          const message =
+            error.message === "record-unsupported"
+              ? "Este navegador no permite grabar esta composicion desde la pagina."
+              : error.message === "record-iphone-only"
+                ? "La grabacion integrada esta disponible en el modo iPhone simple."
+                : "No pude iniciar la grabacion.";
+          setError(message);
+          console.error(error);
+        }
+      });
+
+      els.shareRecording.addEventListener("click", async () => {
+        setError("");
+
+        try {
+          if (!latestRecording) return;
+
+          const file = new File([latestRecording.blob], latestRecording.fileName, {
+            type: latestRecording.mimeType || "video/mp4"
+          });
+
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({
+              files: [file],
+              title: "Holograma AR",
+              text: "Video grabado con holograma"
+            });
+          } else {
+            window.open(latestRecording.url, "_blank");
+          }
+        } catch (error) {
+          if (error.name !== "AbortError") {
+            setError("No pude abrir Compartir. Proba tocar Compartir de nuevo.");
+            console.error(error);
+          }
+        }
+      });
+
+      els.toggleSound.addEventListener("click", () => {
+        if (!currentVideo) return;
+        currentVideo.muted = !currentVideo.muted;
+        els.toggleSound.textContent = currentVideo.muted ? "Audio" : "Mute";
+      });
+
+      els.restart.addEventListener("click", () => {
+        stopRecording();
+        if (currentVideo) currentVideo.pause();
+        if (currentXrSession) currentXrSession.end().catch(() => {});
+        if (currentRenderer) currentRenderer.dispose();
+        if (currentCameraStream) currentCameraStream.getTracks().forEach((track) => track.stop());
+        els.sceneMount.innerHTML = "";
+        currentVideo = null;
+        currentXrSession = null;
+        currentRenderer = null;
+        currentCameraStream = null;
+        currentIphoneOverlay = null;
+        clearLatestRecording();
+        clearAudioCapture();
+        els.recordVideo.textContent = "Grabar";
+        objectUrls.splice(0).forEach((url) => URL.revokeObjectURL(url));
+        els.hud.classList.remove("is-visible");
+        els.setup.style.display = "grid";
+        els.startButton.disabled = false;
+        els.startButton.textContent = "Iniciar AR";
+        els.status.innerHTML = "<strong>Buscando target</strong>";
+      });
+    </script>
+  </body>
+</html>
